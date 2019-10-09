@@ -18,7 +18,8 @@ func NewAnalyzer() gourmet.Analyzer {
 }
 
 func (ta *TlsAnalyzer) Filter(c *gourmet.Connection) bool {
-	return c.SourcePort == 443 || c.DestinationPort == 443
+	return (c.SourcePort == 443 || c.DestinationPort == 443) &&
+		len(c.Payload.Bytes()) > 0
 }
 
 func (ta *TlsAnalyzer) Analyze(c *gourmet.Connection) (gourmet.Result, error) {

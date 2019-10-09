@@ -1,6 +1,8 @@
 package tlsresult
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+)
 
 type TlsType                 uint8
 type TlsVersion              uint16
@@ -12,7 +14,6 @@ const (
 	ChangeCipherSpecType TlsType = 20
 	AlertType            TlsType = 21
 	HandshakeType        TlsType = 22
-	ApplicationType      TlsType = 23
 	HeartbeatType        TlsType = 24
 
 	SSL30 TlsVersion = 0
@@ -77,12 +78,6 @@ type TlsMessage struct {
 	Message Message
 }
 
-type TlsApplicationData struct {
-	Type TlsType
-	Version TlsVersion
-	Data ApplicationData
-}
-
 type TlsAlert struct {
 	Type TlsType
 	Version TlsVersion
@@ -95,20 +90,13 @@ type TlsChangeCipherSpec struct {
 }
 
 type Message struct {
-	MessageLength [3]uint8
+	MessageLength uint32
 	MessageData   []byte
 }
 
 type Alert struct {
 	Level AlertLevel
 	Description AlertDescription
-}
-
-type ApplicationData struct {
-	Length uint16
-	Data   []byte
-	MAC    []byte
-	Padding []byte
 }
 
 func DecodeTlsMessage(payload []byte) (msg *TlsMessage, decoded uint16, err error) {
@@ -120,17 +108,6 @@ func DecodeTlsMessage(payload []byte) (msg *TlsMessage, decoded uint16, err erro
 		Version: tlsVersion,
 	}
 	return msg, length + 5, nil
-}
-
-func DecodeTlsApplicationData(payload []byte) (appData *TlsApplicationData, decoded uint16, err error) {
-	tlsType := TlsType(payload[0])
-	tlsVersion := TlsVersion(payload[2])
-	length := binary.BigEndian.Uint16(payload[3:5])
-	appData = &TlsApplicationData{
-		Type:    tlsType,
-		Version: tlsVersion,
-	}
-	return appData, length + 5, nil
 }
 
 func DecodeTlsAlert(payload []byte) (alert *TlsAlert, decoded uint16, err error) {
@@ -160,24 +137,16 @@ func DecodeTlsPayload(payload []byte) (decodedTls []interface{}, err error) {
 	var decodedRecord interface{}
 	tlsType := TlsType(payload[0])
 	bytesLeft := uint16(len(payload))
-	for bytesLeft > 0 {
-		payloadChunk := payload[nextMessageStart:]
-		switch tlsType {
-		case HandshakeType:
-			decodedRecord, decoded, err = DecodeTlsMessage(payloadChunk)
-		case AlertType:
-			decodedRecord, decoded, err = DecodeTlsAlert(payloadChunk)
-		case ApplicationType:
-			decodedRecord, decoded, err = DecodeTlsApplicationData(payloadChunk)
-		case ChangeCipherSpecType:
-			decodedRecord, decoded, err = DecodeChangeCipherSpec(payloadChunk)
-		}
-		if decoded == 0 || err != nil {
-			break
-		}
-		decodedTls = append(decodedTls, decodedRecord)
-		bytesLeft -= decoded
-		nextMessageStart += decoded
+	switch tlsType {
+	case HandshakeType:
+		decodedRecord, decoded, err = DecodeTlsMessage(payload)
+	case AlertType:
+		decodedRecord, decoded, err = DecodeTlsAlert(payload)
+	case ChangeCipherSpecType:
+		decodedRecord, decoded, err = DecodeChangeCipherSpec(payload)
 	}
+	decodedTls = append(decodedTls, decodedRecord)
+	bytesLeft -= decoded
+	nextMessageStart += decoded
 	return decodedTls, err
 }
