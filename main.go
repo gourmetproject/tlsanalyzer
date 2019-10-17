@@ -31,3 +31,5 @@ func (ta *TlsAnalyzer) Analyze(c *gourmet.Connection) (gourmet.Result, error) {
 	}
 	return TlsResult(*result), err
 }
+
+func main() {}
