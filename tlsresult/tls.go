@@ -1,19 +1,22 @@
+/*
+tlsresult is a package that decodes TLS payloads into structs that are
+returned as a Gourmet Result by the tlsanalyzer. Other analyzers can depend on
+this analyzer to analyze TLS payloads without having to decode the payload
+themselves.
+ */
 package tlsresult
 
 import (
 	"encoding/binary"
+	"errors"
+	"fmt"
 )
 
 type TlsType                 uint8
 type TlsVersion              uint16
-type HandshakeMessageType    uint8
-type AlertLevel              uint8
-type AlertDescription        uint8
 
 const (
-	ChangeCipherSpecType TlsType = 20
-	AlertType            TlsType = 21
-	HandshakeType        TlsType = 22
+	ApplicationDataType  TlsType = 23
 	HeartbeatType        TlsType = 24
 
 	SSL30 TlsVersion = 0
@@ -21,132 +24,120 @@ const (
 	TLS11 TlsVersion = 2
 	TLS12 TlsVersion = 3
 	TLS13 TlsVersion = 4
-
-	HelloRequest       HandshakeMessageType = 0
-	ClientHello        HandshakeMessageType = 1
-	ServerHello        HandshakeMessageType = 2
-	NewSessionTicket   HandshakeMessageType = 4
-	EncryptedExtension HandshakeMessageType = 8
-	Certificate        HandshakeMessageType = 11
-	ServerKeyExchange  HandshakeMessageType = 12
-	CertificateRequest HandshakeMessageType = 13
-	ServerHelloDone    HandshakeMessageType = 14
-	CertificateVerify  HandshakeMessageType = 15
-	ClientKeyExchange  HandshakeMessageType = 16
-	Finished           HandshakeMessageType = 20
-
-	Warning AlertLevel = 1
-	Fatal   AlertLevel = 2
-
-	CloseNotify   AlertDescription = 0
-	UnexpectedMsg AlertDescription = 10
-	BadRecordMAC  AlertDescription = 20
-	DecryptionFailed AlertDescription = 21
-	RecordOverflow   AlertDescription = 22
-	DecompressionFailure AlertDescription = 30
-	HandshakeFailure AlertDescription = 40
-	NoCertificate AlertDescription = 41
-	BadCertificate AlertDescription = 42
-	UnsupportedCertificate AlertDescription = 43
-	CertificateRevoked AlertDescription = 44
-	CertificateExpired AlertDescription = 45
-	CertificateUnknown AlertDescription = 46
-	IllegalParameter   AlertDescription = 47
-	UnknownCA AlertDescription = 48
-	AccessDenied AlertDescription = 49
-	DecodeError AlertDescription = 50
-	DecryptError AlertDescription = 51
-	ExportRestriction AlertDescription = 60
-	ProtocolVersion AlertDescription = 70
-	InsufficientSecurity AlertDescription = 71
-	InternalError AlertDescription = 80
-	InappropriateFallback AlertDescription = 86
-	UserCanceled AlertDescription = 90
-	NoRenegotiation AlertDescription = 100
-	UnsupportedExtension AlertDescription = 110
-	CertificateUnobtainable AlertDescription = 111
-	UnrecognizedName AlertDescription = 112
-	BadCertStatusResponse AlertDescription = 113
-	BadCertHashValue AlertDescription = 114
-	UnknownPSKIdentity AlertDescription = 115
-	NoApplicationProtocol AlertDescription = 120
 )
 
-type TlsMessage struct {
+type TLS struct {
+	ChangeCipherSpec []ChangeCipherSpecRecord
+	Alert            []AlertRecord
+	Handshake        []HandshakeRecord
+	ApplicationData  []ApplicationDataRecord
+	Heartbeat        []HeartbeatRecord
+}
+
+type TlsHeader struct {
 	Type    TlsType
 	Version TlsVersion
-	Message Message
+	Length  uint16
 }
 
-type TlsAlert struct {
-	Type TlsType
-	Version TlsVersion
-	Alert Alert
-}
-
-type TlsChangeCipherSpec struct {
-	Type TlsType
-	Version TlsVersion
-}
-
-type Message struct {
-	MessageLength uint32
-	MessageData   []byte
-}
-
-type Alert struct {
-	Level AlertLevel
-	Description AlertDescription
-}
-
-func DecodeTlsMessage(payload []byte) (msg *TlsMessage, decoded uint16, err error) {
-	tlsType := TlsType(payload[0])
-	tlsVersion := TlsVersion(payload[2])
-	length := binary.BigEndian.Uint16(payload[3:5])
-	msg = &TlsMessage{
-		Type:    tlsType,
-		Version: tlsVersion,
-	}
-	return msg, length + 5, nil
-}
-
-func DecodeTlsAlert(payload []byte) (alert *TlsAlert, decoded uint16, err error) {
-	tlsType := TlsType(payload[0])
-	tlsVersion := TlsVersion(payload[2])
-	length := binary.BigEndian.Uint16(payload[3:5])
-	alert = &TlsAlert{
-		Type:    tlsType,
-		Version: tlsVersion,
-	}
-	return alert, length + 5, nil
-}
-
-func DecodeChangeCipherSpec(payload []byte) (ccs *TlsChangeCipherSpec, decoded uint16, err error) {
-	tlsType := TlsType(payload[0])
-	tlsVersion := TlsVersion(payload[2])
-	length := binary.BigEndian.Uint16(payload[3:5])
-	ccs = &TlsChangeCipherSpec{
-		Type:    tlsType,
-		Version: tlsVersion,
-	}
-	return ccs, length + 5, nil
-}
-
-func DecodeTlsPayload(payload []byte) (decodedTls []interface{}, err error) {
-	var nextMessageStart, decoded uint16
-	var decodedRecord interface{}
-	tlsType := TlsType(payload[0])
-	bytesLeft := uint16(len(payload))
-	switch tlsType {
-	case HandshakeType:
-		decodedRecord, decoded, err = DecodeTlsMessage(payload)
-	case AlertType:
-		decodedRecord, decoded, err = DecodeTlsAlert(payload)
+func (tt TlsType) String() string {
+	switch tt {
 	case ChangeCipherSpecType:
-		decodedRecord, decoded, err = DecodeChangeCipherSpec(payload)
+		return "Change Cipher Spec"
+	case AlertType:
+		return "Alert"
+	case HandshakeType:
+		return "Handshake"
+	case ApplicationDataType:
+		return "Application Data"
+	default:
+		return "Unknown"
 	}
-	decodedTls = append(decodedTls, decodedRecord)
-	bytesLeft -= decoded
-	nextMessageStart += decoded
-	return decodedTls, err
+}
+
+func (tv TlsVersion) String() string {
+	switch tv {
+	case 0x0200:
+		return "SSL 2.0"
+	case 0x0300:
+		return "SSL 3.0"
+	case 0x0301:
+		return "TLS 1.0"
+	case 0x0302:
+		return "TLS 1.1"
+	case 0x0303:
+		return "TLS 1.2"
+	case 0x0304:
+		return "TLS 1.3"
+	default:
+		return "Unknown"
+	}
+}
+
+func DecodeTLS(data []byte) (t *TLS, err error) {
+	if len(data) < 5 {
+		return nil, fmt.Errorf("TLS record too short")
+	}
+	t = &TLS{}
+	err = t.decodeTlsPayload(data)
+	return t, err
+}
+
+func (t *TLS) decodeTlsPayload(data []byte) (err error) {
+	if len(data) < 5 {
+		return errors.New("TLS record too short")
+	}
+	var h TlsHeader
+	h.Type = TlsType(data[0])
+	h.Version = TlsVersion(binary.BigEndian.Uint16(data[1:3]))
+	h.Length = binary.BigEndian.Uint16(data[3:5])
+	hl := 5
+	tl := hl + int(h.Length)
+
+	switch h.Type {
+	case ChangeCipherSpecType:
+		var ccs ChangeCipherSpecRecord
+		e := ccs.decodeChangeCipherSpec(data[hl:tl])
+		if e != nil {
+			return e
+		}
+		t.ChangeCipherSpec = append(t.ChangeCipherSpec, ccs)
+	case AlertType:
+		var a AlertRecord
+		e := a.decodeAlert(data[hl:tl])
+		if e != nil {
+			return e
+		}
+		t.Alert = append(t.Alert, a)
+	case HandshakeType:
+		consumed := 5
+		for consumed < len(data[consumed:tl]) {
+			var hs HandshakeRecord
+			c, e := hs.decodeHandshake(data[consumed:tl])
+			if e != nil {
+				return e
+			}
+			t.Handshake = append(t.Handshake, hs)
+			consumed += c
+		}
+		/*
+	case ApplicationDataType:
+		var ad ApplicationDataRecord
+		e := decodeApplicationData(data[hl:tl])
+		if e != nil {
+			return e
+		}
+		t.ApplicationData = append(t.ApplicationData, ad)
+	case HeartbeatType:
+		var hb HeartbeatRecord
+		e := decodeHeartbeat(data[hl:tl])
+		if e != nil {
+			return e
+		}
+		t.Heartbeat = append(t.Heartbeat, hb)
+		 */
+	default:
+		return errors.New("unknown TLS record type")
+	}
+	return nil
 }

@@ -3,11 +3,12 @@ package main
 import (
 	"github.com/gourmetproject/gourmet"
 	"github.com/gourmetproject/tlsanalyzer/tlsresult"
+	"log"
 )
 
-type Tls []interface{}
+type TlsResult tlsresult.TLS
 
-func (t Tls) Key() string {
+func (t TlsResult) Key() string {
 	return "tls"
 }
 
@@ -23,6 +24,10 @@ func (ta *TlsAnalyzer) Filter(c *gourmet.Connection) bool {
 }
 
 func (ta *TlsAnalyzer) Analyze(c *gourmet.Connection) (gourmet.Result, error) {
-	result, err := tlsresult.DecodeTlsPayload(c.Payload.Bytes())
-	return Tls(result), err
+	result, err := tlsresult.DecodeTLS(c.Payload.Bytes())
+	if err != nil {
+		log.Println(err)
+		return nil, err
+	}
+	return TlsResult(*result), err
 }
